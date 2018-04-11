@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!--
+################################################################################
+# If not stated otherwise in this file or this component's Licenses.txt file the
+# following copyright and licenses apply:
+#
+# Copyright 2017 Liberty Global B.V.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+-->
+<!--EXAMPLE XML CONFIGURATION -->
+
+<CONTAINER  SandboxName="EXAMPLE">
+ <!--
+       LxcParams - parameters for start script needed to run lxc-execute command.
+                   Optionally an attribute "version" can be set that must match with the version
+                   passed via tool cmdline (debug, production or release)
+       OPTIONS:
+       ->LauncherName -name of launcher script
+       ->ContainerName -name of the container, this parameter is optional.
+               if name is not set the default name is taken from SandBoxName.
+               This was created to make few containers from the same config.
+       ->ExecName -name of binary or command to execute in container
+       ->ExecParams - parameters for binary or command to execute
+       ->StopFunction -should stop option in launcher should be created
+       ->SystemdNotify -use systemd-notify to notify systemd that process is inited,
+               Launcher script will wait for pidfile and notify systemd
+               that service is initialized. Optional. create=yes must be set to use it.
+           -> PidFile -pidfile to wait on before systemd notify. Optional.
+           -> ProcessName -name of child process that will be looked for. Optional. By default
+                           taken from ExecName.
+       ->Output - Lxc-execute output options (enable = true or false). Optionally an attribute "version"
+                  can be set that must match with the version passed via tool cmdline
+                  (debug, production or release)
+           ->LogFile -path to log file
+           ->LogPriority -Log level for lxc.Possible log levels
+                   FATAL ALERT CRIT ERROR WARN NOTICE INFO DEBUG TRACE
+       ->Attach -describes the process, which will be attached using lxc-attach
+           -> PramName -name of param, which will need to be passed to launcher to trigger attaching.
+           -> ExecName -name of binary or command to attach in container
+           -> ExecParams - parameters for binary or command to attach
+           -> SystemdNotify -use systemd-notify to notify systemd that process is inited,
+               Launcher script will wait for pidfile and notify systemd
+               that service is initialized. Optional. create=yes must be set to use it.
+               -> PidFile -pidfile to wait on before systemd notify. Optional.
+               -> ProcessName -name of child process that will be looked for. Optional. By default
+                           taken from ExecName.
+           -> GroupName -process attached to container will spawn to given group. Optional, if not set falls back to UserName.
+           -> UserName -process attached to container will spawn to given user. Optional.
+-->
+   <LxcParams version="debug">
+       <LauncherName>start</LauncherName>
+       <ExecName>/bin/sh</ExecName>
+       <ExecParams>-c "while true; do echo test; sleep 5; done"</ExecParams>
+       <StopFunction enable="true"></StopFunction>
+       <SystemdNotify create="yes">
+           <PidFile>/run/component_name/pidfile.pid</PidFile>
+       </SystemdNotify>
+       <Output enable="false" version="debug">
+           <LogFile>/var/log/lxc/logifile.log</LogFile>
+           <LogPriority>ERROR</LogPriority>
+       </Output>
+       <Attach>
+           <ParamName>attach_sleep</ParamName>
+           <ExecName>/bin/sleep</ExecName>
+           <ExecParams>100</ExecParams>
+       <UserName>dhcpc</UserName>
+       <GroupName>dhcpc</GroupName>
+       </Attach>
+       <Attach>
+           <ParamName>attach_ls</ParamName>
+           <ExecName>/bin/ls</ExecName>
+           <ExecParams>-l /etc</ExecParams>
+           <SystemdNotify create="yes">
+               <PidFile>/run/componentName/pidfile.pid</PidFile>
+               <ProcessName>/bin/ls</ProcessName>
+           </SystemdNotify>
+       <UserName>firewall</UserName>
+       <GroupName>firewall</GroupName>
+       </Attach>
+       <Attach>
+           <ParamName>attach_ls_no_pid_file</ParamName>
+           <ExecName>/bin/sh -c /bin/something</ExecName>
+           <ExecParams>-l /etc</ExecParams>
+           <SystemdNotify create="yes">
+               <ProcessName>/bin/something</ProcessName>
+           </SystemdNotify>
+       <UserName>firewall</UserName>
+       <GroupName>firewall</GroupName>
+       </Attach>
+   </LxcParams>
+
+<!--
+        LxcConfig - this section handles the lxc.conf
+        OPTIONS:
+            -> MemoryLimit -set a memory limit in bytes
+            -> CapDrop -Specify the capabilities to be dropped in
+                 the container (put the capabilities separated by space).
+            -> CapKeep -Specify the capabilities to be keep in
+                 the container (put the capabilities separated by space).
+            -> DeviceCgroup
+                The order in this list is kept and important to LXC.
+                -> DevicesAllow - controls the devices cgroup which lets you
+                    define which character and block devices
+                    a container may access. Attribute name is optional and is used
+                    to generate a comment line.
+                -> DevicesDeny - controls the devices cgroup which lets you
+                    define which character and block devices
+                    a container cannot access. Use "a" to deny all devices.
+                    Attribute name is optional and is used
+                    to generate a comment line.
+                -> AllowDefaultDevices - generates access rules to default devices like /dev/null
+                    when enable=yes.
+            -> GroupName - main process started in container will spawn to given group. Optional.
+            -> UserName - main process started in container will spawn to given user. Optional.
+            -> GroupNameRootFs - the group that will be set as owner to all files in container rootfs.
+                                 Optional. If not set it falls back as follows: GroupName, UserNameRootFs, UserName.
+            -> UserNameRootFs - the user that will be set as owner to all files in container rootfs.
+                                 Optional. If not set it falls back to UserName.
+            -> LxcInclude -path to additional lxc.conf file
+            -> Environment -each entry is one environment variable set in container
+                 only available via lxc-execute, not via lxc-attach!
+                 Optional attributes to set:
+                     -> version - If provided must match with version passed via cmdline (debug, production, release)
+                     -> SOC_VER - This defines the platform in a unique way, currently arch and version is enough to do this.
+                                  For example: mipsel_16.3, arm_16.4, i686
+                     -> OE_VER - Specifies yocto version (OE version pattern from 2 digits to 2 digits separated by dot,
+                                    for example 2.1)
+   -->
+    <LxcConfig>
+        <MemoryLimit></MemoryLimit>
+        <CapDrop></CapDrop>
+        <CapKeep></CapKeep>
+        <UserName></UserName>
+        <GroupName></GroupName>
+        <UserNameRootFs></UserNameRootFs>
+        <GroupNameRootFs></GroupNameRootFs>
+        <DeviceCgroup>
+          <DevicesDeny>a</DevicesDeny>
+          <DevicesAllow name="/dev/dummy">c 123:0 rw</DevicesAllow>
+          <AllowDefaultDevices enable="yes"/>
+        </DeviceCgroup>
+        <LxcInclude></LxcInclude>
+        <Environment version="release" SOC_VER="arm_16.3" OE_VER="2.0">
+            <Variable>MALLOC_CHECK_=2</Variable>
+        </Environment>
+
+<!--
+    Network node - specify what kind of network virtualization
+            will be used for the container
+            Supported network types:
+            -> none: will cause the container to share the host's network namespace.
+            -> empty: will create only the loopback interface.
+            -> veth: a virtual ethernet pair device
+                 is created with one side assigned to
+                 the container and the other side attached
+                 to a bridge specified by the lxc.network.link option
+    OPTIONS FOR VETH TYPE:
+    -> Name        -specify the network name inside container.
+    -> Flags       -specify an action to do for the network:(up: activates the interface).
+    -> Link        -specify the interface to be used for real network traffic.
+    -> Pair        -specify a name for the network device belonging to the outside of the container.
+    -> HwAddr      -specify mac address for  virtual interface.
+    -> IPV4        -specify the ipv4 address to assign to the virtualized interface.
+    -> IPV4gateway -specify the ipv4 address to use as the gateway inside the container.
+    -> IPV6        -specify the ipv6 address to assign to the virtualized interface.
+    -> IPV6gateway -specify the ipv6 address to use as the gateway inside the container.
+-->
+        <Network type="veth">
+            <Name>veth0</Name>
+            <Flags>up</Flags>
+            <Link></Link>
+            <Pair></Pair>
+            <HwAddr></HwAddr>
+            <IPV4></IPV4>
+            <IPV4gateway></IPV4gateway>
+            <IPV6></IPV6>
+            <IPV6gateway></IPV6gateway>
+        </Network>
+
+        <Network type="veth">
+            <Name>veth1</Name>
+            <Flags>up</Flags>
+            <Link></Link>
+            <Pair></Pair>
+            <HwAddr></HwAddr>
+            <IPV4></IPV4>
+            <IPV4gateway></IPV4gateway>
+            <IPV6></IPV6>
+            <IPV6gateway></IPV6gateway>
+        </Network>
+
+    <!--
+        Dbus node - this sections hanndle the D-Bus configuration
+        OPTIONS:
+            -> enable
+            -> false -do not enable dbus in container
+            -> true -enable dbus in container
+    -->
+        <Dbus enable="true"></Dbus>
+
+<!--
+        Rootfs node - this section handles the Rootfs configuration. If rootfs tag is not present or
+                      create=no, then no rootfs will be created and the container will share its rootfs with
+                      the host. Also the commandline option -e forces this "shared rootfs" feature regardless
+                      of the contents of rootfs tag.
+          OPTIONS:
+            -> MountPoints - this node defines the mount points configuration
+                     for rootfs inside container. Entry params are in typical fstab format,
+                     description of them can be found on fstab man page.
+                     If FsType, Dump or Fsck are not defined, their values will be set as follows: [None, 0 0].
+                     Type of Entry depends on what you want to mount: directory or single file.
+                     The Destination path is relative to container rootfs
+                     Optional attributes to set:
+                        -> version - If provided must match with version passed via cmdline (debug, production, release)
+                        -> SOC_VER - This defines the platform in a unique way, currently arch and version is enough to do this.
+                                     For example: mipsel_16.3, arm_16.4, i686
+                        -> OE_VER - Specifies yocto version (OE version pattern from 2 digits to 2 digits separated by dot,
+                                    for example 2.1)
+            -> MoveContent - this node defines which content should be moved from host rootfs to container rootfs.
+                     Type of Entry depends what you want to move: directory or single file.
+                     Two parameters needed:
+                        -> Source - path to content to move
+                        -> Destination - path to directory where it should be moved
+                                into container -without "/" at the beginning)
+            -> LibsRoBindMounts - This entry describe the libraries
+                     which should be mount binded into container rootfs.
+                     It requires only the name of library.
+                     Optional attributes to set:
+                        -> version - If provided must match with version passed via cmdline (debug, production, release)
+                        -> SOC_VER - This defines the platform in a unique way, currently arch and version is enough to do this.
+                                     For example: mipsel_16.3, arm_16.4, i686
+                        -> OE_VER - Specifies yocto version (OE version pattern from 2 digits to 2 digits separated by dot,
+                                    for example 2.1)
+             -> AutoDev - This trigger enables(1)/disables(0) tmpfs in /dev directory, and creates initial devices.
+ -->
+        <Rootfs create="yes">
+            <AutoDev>0</AutoDev>
+            <MountPoints>
+                <Entry type="dir" version="debug" SOC_VER="arm_16.4" OE_VER="2.1">
+                    <Source>/lib</Source>
+                    <Destination>lib</Destination>
+                    <FsType>none</FsType>
+                    <Options>ro,bind</Options>
+                    <Dump>0</Dump>
+                    <Fsck>0</Fsck>
+                </Entry>
+
+                <Entry type="file" version="release" SOC_VER="arm_16.3" OE_VER="2.0">
+                    <Source>/etc/resolv.conf</Source>
+                    <SourceRoFs>/var/volatile/resolv.conf</SourceRoFs>
+                    <Destination>etc/resolv.conf</Destination>
+                    <FsType>none</FsType>
+                    <Options>ro,bind</Options>
+                    <Dump>0</Dump>
+                    <Fsck>0</Fsck>
+                </Entry>
+            </MountPoints>
+
+            <LibsRoBindMounts>
+                <Entry version="debug" SOC_VER="arm_16.4" OE_VER ="2.1">ld</Entry>
+                <Entry>libc</Entry>
+            </LibsRoBindMounts>
+
+        </Rootfs>
+    </LxcConfig>
+</CONTAINER>
+
