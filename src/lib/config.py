@@ -30,30 +30,31 @@ from sanity_check import cSanityCheck
 #
 ################################################################################
 class cConfig(object):
-    def __init__(self, sanityCheck, rootfs, privileged, append):
+    def __init__(self, sanityCheck, rootfs, privileged, append, prevUserName, prevGroupName):
         self.sanityCheck = sanityCheck
         self.rootfs = rootfs
-        self.privileged=privileged
+        self.privileged = privileged
         self.autodev = True
         self.isAppend = append
+        self.prevUserName = prevUserName
+        self.prevGroupName = prevGroupName
 
-    def createPasswdAndGroupFiles(self, lxcParamsNode, lxcConfigNode):
-        allUserNames = []
-        allGroupNames = []
-    
+    def processUsersAndGroups(self, lxcParamsNode, lxcConfigNode, allUserNames, allGroupNames):
         # add username and groupname for main service
-        userName = lxcConfigNode.find("UserName");
-        groupName = lxcConfigNode.find("GroupName");
-        if (groupName == None or groupName.text == None):
-            groupName = userName
-        if (userName != None and userName.text != None):
-            allUserNames.append(userName.text)
-        if (groupName != None and groupName.text != None):
-            allGroupNames.append(groupName.text)
+        if (lxcConfigNode != None):
+            userName = lxcConfigNode.find("UserName");
+            groupName = lxcConfigNode.find("GroupName");
+            if (groupName == None or groupName.text == None):
+                groupName = userName
+            if (userName != None and userName.text != None):
+                allUserNames["start"] = userName.text # main launcher doesn't have a ParamName attribute, so use "start"
+            if (groupName != None and groupName.text != None):
+                allGroupNames["start"] = groupName.text
     
         # add usernames and groupnames for secondary services if needed
         if (lxcParamsNode != None):
             for attachEntry in lxcParamsNode.iter('Attach'):
+                paramName = attachEntry.find("ParamName").text
                 userName = attachEntry.find("UserName");
                 groupName = attachEntry.find("GroupName");
     
@@ -62,17 +63,19 @@ class cConfig(object):
                     groupName = userName
     
                 if (userName != None and userName.text != None):
-                    allUserNames.append(userName.text)
+                    allUserNames[paramName] = userName.text
                 if (groupName != None and groupName.text != None):
-                    allGroupNames.append(groupName.text)
+                    allGroupNames[paramName] = groupName.text
     
         if (not self.sanityCheck.isPrivileged() ):
-            allUserNames.append("root")
-            allGroupNames.append("root")
-            allUserNames.append("lxc")
-            allGroupNames.append("lxc")
-    
-        self.rootfs.createUserGroupEntries(allUserNames, allGroupNames)
+            allUserNames["hardcoded-root"] = "root" # assuming none of the launchers will ever have ParamName == "hardcoded-root"
+            allGroupNames["hardcoded-root"] = "root"
+            allUserNames["hardcoded-lxc"] = "lxc" # assuming none of the launchers will ever have ParamName == "hardcoded-lxc"
+            allGroupNames["hardcoded-lxc"] = "lxc"
+
+        if (not self.rootfs.isRootfsShared()):
+            print ("[%s] Create /etc/passwd /etc/group entries for container"%(self.sanityCheck.getName()))
+            self.rootfs.createUserGroupEntries(allUserNames, allGroupNames)
 
     def createEnvConf(self, lxcConfigNode):
 
@@ -81,15 +84,27 @@ class cConfig(object):
 
         if (self.sanityCheck.validateTextEntry(envNode)):
             entry += "\n# Environment Variables Configuration\n"
+            preload = list()
+
             if envNode != None:
                 for variable in envNode.iter('Variable'):
                     if (variable != None and variable.text != None):
-                        if (self.sanityCheck.validateSocOE(variable) == True and self.sanityCheck.validateVersion(variable) == True):
-                            entry += "lxc.environment = %s\n"%(variable.text)
+                        if (self.sanityCheck.validateTags(variable) == True):
+                            parts = variable.text.split("=")
+                            var_name = parts[0].strip();
+                            if var_name == "LD_PRELOAD":
+                                preload = parts[1].split(":")
+                            else:
+                                entry += "lxc.environment = %s\n"%(variable.text)
                         else:
                             print("[%s] Skipping entry for variable = %s \t Current Settings: %s "%(self.sanityCheck.getName(), variable.text, self.sanityCheck.getPlatformSettings()))
             else:
                 print("We do not need to create Environment variables")
+
+            if preload:
+                entry += "lxc.environment = LD_PRELOAD=%s\n"%(":".join(preload))
+                for preload_lib in preload:
+                    self.rootfs.addLibraryRequired(preload_lib, 'LD_PRELOAD')
 
         return entry
 
@@ -145,12 +160,12 @@ class cConfig(object):
 
         return entry
 
-    def createMountPoint(self, type, path):
+    def createMountPoint(self, type, path, source):
 
         if (type == "dir"):
             self.rootfs.makeDir( "%s/%s"%(self.rootfs.getPathRootfsHost(), path))
         elif (type == "file"):
-            self.rootfs.makeFile( "%s/%s"%(self.rootfs.getPathRootfsHost(), path))
+            self.rootfs.createMountPointForFile(path, source)
         elif (type == "dev"):
             if(self.autodev):
                 print("[%s] Skipping creating entry for devices cause - autodev enabled."%(self.sanityCheck.getName()))
@@ -189,7 +204,7 @@ class cConfig(object):
             entry += "\n# Mount Points Configuration\n"
             for mountPoint in mountPointNode.iter('Entry'):
                 if(mountPoint != None):
-                    if (self.sanityCheck.validateAllTags(mountPoint)):
+                    if (self.sanityCheck.validateTags(mountPoint)):
                         source = mountPoint.find("Source")
                         destination = mountPoint.find("Destination")
                         options = mountPoint.find("Options").text
@@ -209,7 +224,7 @@ class cConfig(object):
 
                         if (self.sanityCheck.validateTextEntry(source) and self.sanityCheck.validateTextEntry(destination)):
 
-                            self.sanityCheck.validateMountBind(source.text)
+                            self.sanityCheck.validateMountBind(source.text, options)
                             self.sanityCheck.validateOptions(source.text, fsType, options)
                             if(source.text == destination.text):
                                 if(not self.sanityCheck.checkNestedMountBinds(source.text)):
@@ -222,9 +237,13 @@ class cConfig(object):
                                                                             dump,
                                                                             fsck)
 
-                            self.createMountPoint(type, destination.text)
+                            self.createMountPoint(type, destination.text, source.text)
                             if (type == "dir"):
                                 self.sanityCheck.addDir(source.text)
+                                for unusedEntry in mountPoint.iter('Unused'):
+                                    if (self.sanityCheck.validateTextEntry(unusedEntry)):
+                                        self.rootfs.unusedList.append(unusedEntry.text)
+                                self.rootfs.checkElfDepsForDirectoryMountPoint(destination.text, source.text)
 
                         else:
                             raise Exception("INVALID DATA MOUNT POINT")
@@ -258,18 +277,33 @@ class cConfig(object):
             entry += "\n# Mount Binds Configuration For Libs\n"
             for libBinding in libBindingsNode.iter('Entry'):
                 if (self.sanityCheck.validateTextEntry(libBinding)):
-                    if (self.sanityCheck.validateAllTags(libBinding)):
+                    if (self.sanityCheck.validateTags(libBinding)):
                         libList = self.rootfs.findLibByName(libBinding.text)
                         for source in libList:
                             if(self.sanityCheck.pathExist(source)):
                                 entry += "lxc.mount.entry = /%s %s none ro,bind,nodev,nosuid 0 0\n"%(source,
                                                                                             source)
-                                self.rootfs.makeFile( "%s/%s"%(self.rootfs.getPathRootfsHost(), source))
+                                self.rootfs.createMountPointForFile(source)
                             else:
                                 raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(source))
                     else:
                         print("[%s] Skipping entry for libName = %s \t Current Settings: %s "%(self.sanityCheck.getName(), libBinding.text, self.sanityCheck.getPlatformSettings()))
         return entry
+
+    def generateHardlinks(self, libHardlinksNode):
+
+        if libHardlinksNode is not None:
+            for libHardlink in libHardlinksNode.iter('Entry'):
+                if self.sanityCheck.validateTextEntry(libHardlink):
+                    if self.sanityCheck.validateTags(libHardlink):
+                        libList = self.rootfs.findLibByName(libHardlink.text)
+                        for source in libList:
+                            if self.sanityCheck.pathExist(source):
+                                self.rootfs.createHardlinkForFile(source)
+                            else:
+                                raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(source))
+                    else:
+                        print("[%s] Skipping entry for libName = %s \t Current Settings: %s "%(self.sanityCheck.getName(), libHardlink.text, self.sanityCheck.getPlatformSettings()))
 
     def createRootfsConf(self, rootfsNode):
 
@@ -284,6 +318,7 @@ class cConfig(object):
                 entry += self.generateMountPoints(rootfsNode.find("MountPoints"))
                 self.moveContent(rootfsNode.find("MoveContent"))
                 entry += self.generateLibMountPoints(rootfsNode.find("LibsRoBindMounts"))
+                self.generateHardlinks(rootfsNode.find("LibsHardlinks"))
             else:
                 print("[%s] Mount namespace disabled"%(self.sanityCheck.getName()))
 
@@ -297,15 +332,16 @@ class cConfig(object):
             userName = lxcConfigNode.find("UserName");
             groupName = lxcConfigNode.find("GroupName");
             if (self.sanityCheck.validateTextEntry(userName) and self.sanityCheck.validateTextEntry(groupName)):
-                uid=self.rootfs.userNameToUid(userName.text)
-                gid=self.rootfs.groupNameToGid(groupName.text)
-                entry +="\n# USER/GROUP Container Configuration\n"
-                entry += "lxc.init_uid = %s\n"%(uid)
-                entry += "lxc.init_gid = %s\n"%(gid)
+                if (self.prevUserName != userName.text or self.prevGroupName != groupName.text):
+                    uid=self.rootfs.userNameToUid(userName.text)
+                    gid=self.rootfs.groupNameToGid(groupName.text)
+                    entry +="\n# USER/GROUP Container Configuration\n"
+                    entry += "lxc.init_uid = %s\n"%(uid)
+                    entry += "lxc.init_gid = %s\n"%(gid)
 
-            print("[%s] Unprivileged container created"%(self.sanityCheck.getName()))
+            print("[%s] Non-root container created"%(self.sanityCheck.getName()))
         else:
-            print("[%s] Privileged container created"%(self.sanityCheck.getName()))
+            print("[%s] Root container created"%(self.sanityCheck.getName()))
 
         return entry
 
@@ -337,7 +373,7 @@ class cConfig(object):
             conf_fd.write("lxc.utsname = %s\n"%self.rootfs.getSandboxName())
 
         print("[%s] Create LXC CGROUP configuration"%(self.sanityCheck.getName()))
-        cgroup = cCgroup()
+        cgroup = cCgroup(self.sanityCheck)
         cgroupConfig = cgroup.createCGroupConf(lxcConfigNode.find("CGroupSettings"))
         conf_fd.write(cgroupConfig)
 
@@ -377,6 +413,11 @@ class cConfig(object):
                 print("[%s] Create LXC Mount Points configuration"%(self.sanityCheck.getName()))
                 rootfsInfo = self.createRootfsConf(rootfsNode);
                 conf_fd.write(rootfsInfo);
+
+            for autoMount in lxcConfigNode.iter("AutoMount"):
+                if (self.sanityCheck.validateAutoMount(autoMount)):
+                    conf_fd.write("\nlxc.mount.auto = %s\n"%(autoMount.text));
+
         else:
             conf_fd.write("\nlxc.autodev = 0\n")
 

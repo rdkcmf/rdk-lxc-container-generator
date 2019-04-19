@@ -27,10 +27,18 @@ from lib import cLauncher
 from lib import cConfig
 from lib import cSanityCheck
 
+# per container structs to preserve container information when processing container "append" xml
+# indexed by container name
+containers_rootfs = dict()
+containers_launchers = dict()
+containers_UserNames = dict()
+containers_GroupNames = dict()
+containers_UserNameRootFs = dict()
+containers_GroupNameRootFs = dict()
 
-def parse_xml(input_xml, rootfsPath, soc, oe, shareRootfs, version, secure):
+def parse_xml(inputXml, rootfsPath, shareRootfs, secure, tags, enableMountCheck, sleepUs):
 
-    tree = ET.parse(input_xml)
+    tree = ET.parse(inputXml)
     container = tree.getroot()
     name = container.attrib["SandboxName"]
     append = False
@@ -45,45 +53,74 @@ def parse_xml(input_xml, rootfsPath, soc, oe, shareRootfs, version, secure):
         print("\tGENERATE %s CONTAINER"%(name))
         print("==================================================================")
 
-    sanityCheck = cSanityCheck(soc, oe, version, secure, name, rootfsPath)
+    main_base = os.path.dirname(__file__)
+    confPath=main_base + "/conf" + "/config.ini"
 
-    rootfs = cRootfs(name, rootfsPath, shareRootfs)
+    sanityCheck = cSanityCheck(secure, name, rootfsPath, confPath, tags, enableMountCheck)
+
+    if name not in containers_rootfs:
+        containers_rootfs[name] = cRootfs(name, rootfsPath, shareRootfs)
+    rootfs = containers_rootfs[name]
     if(not append):
         rootfs.createContainerTree()
 
-    launcher = cLauncher(sanityCheck, rootfs)
+    if name not in containers_launchers:
+        containers_launchers[name] = cLauncher(sanityCheck, rootfs, sleepUs)
+    launcher = containers_launchers[name]
     lxcParamsNode = launcher.matchVersion(container,"LxcParams")
     if (lxcParamsNode != None):
-        launcher.createLauncher(lxcParamsNode)
+        if(append):
+            launcher.appendLauncher(lxcParamsNode)
+        else:
+            launcher.createLauncher(lxcParamsNode)
 
-    config = cConfig(sanityCheck, rootfs, secure, append)
+    if name not in containers_UserNames:
+        containers_UserNames[name] = dict() # usernames are indexed by xml ParamName. For main launcher use "start"
+    userNames = containers_UserNames[name]
+
+    if name not in containers_GroupNames:
+        containers_GroupNames[name] = dict()
+    groupNames = containers_GroupNames[name]
+
+    config = cConfig(sanityCheck, rootfs, secure, append,
+                     userNames.get("start"), groupNames.get("start")) # pass main launcher user and group from "base" XML
     lxcConfigNode = container.find("LxcConfig")
     if (lxcConfigNode != None):
         config.createLxcConf(lxcConfigNode)
 
-    if (rootfs.isRootfsShared):
-        print ("[%s] Create /etc/passwd /etc/group entries for container\n"%(name))
-        config.createPasswdAndGroupFiles(lxcParamsNode, lxcConfigNode)
+    config.processUsersAndGroups(lxcParamsNode, lxcConfigNode, userNames, groupNames)
 
-    # now assign uid:gid to rootfs files
-    userName = lxcConfigNode.find("UserNameRootFs");
-    if (userName == None or userName.text == None):
-        userName = lxcConfigNode.find("UserName");
+    if (lxcConfigNode != None):
+        # now assign uid:gid to rootfs files
+        userName = lxcConfigNode.find("UserNameRootFs");
+        # if UserNameRootFs not provided fall back to the one given in base xml
+        if (userName == None or userName.text == None):
+            userName = containers_UserNameRootFs.get(name)
+            # if this is a base xml or the value was not provided in base xml, try UserName
+            if (userName == None or userName.text == None):
+                userName = lxcConfigNode.find("UserName");
 
-    groupName = lxcConfigNode.find("GroupNameRootFs");
-    if (groupName == None or groupName.text == None):
-        groupName = lxcConfigNode.find("GroupName");
-        # if no groupName provided, take userName as groupName
+        groupName = lxcConfigNode.find("GroupNameRootFs");
+        # if GroupNameRootFs not provided fall back to the one given in base xml
         if (groupName == None or groupName.text == None):
-            groupName = userName
+            groupName = containers_GroupNameRootFs.get(name)
+            # if this is a base xml or the value was not provided in base xml, try GroupName
+            if (groupName == None or groupName.text == None):
+                groupName = lxcConfigNode.find("GroupName");
+                # if no groupName provided, take userName as groupName
+                if (groupName == None or groupName.text == None):
+                    groupName = userName
 
-    if (userName != None and userName.text != None):
-        uid=rootfs.userNameToUid(userName.text)
-        gid=rootfs.groupNameToGid(groupName.text)
+        if (userName != None and userName.text != None):
+            uid=rootfs.userNameToUid(userName.text)
+            gid=rootfs.groupNameToGid(groupName.text)
 
-        rootfs.setUpContainersRights(uid, gid)
-    else:
-        rootfs.setUpContainersRights("0", "0")
+            rootfs.setUpContainersRights(uid, gid)
+
+            containers_UserNameRootFs[name] = userName
+            containers_GroupNameRootFs[name] = groupName
+        else:
+            rootfs.setUpContainersRights("0", "0")
 
 
 def main():
@@ -91,65 +128,68 @@ def main():
     parser = OptionParser()
 
     parser.usage = """
-genContainer.py [options]
+genContainer.py [options] [files]
 
 Example:
-genContainer.py -f lxc_conf_DIBBLER.xml -r ~/user/rdk/some_path_to_rootfs -R ro -s -S arm_16.4 -o 2.1 -v debug
+genContainer.py -r ~/user/rdk/some_path_to_rootfs -R ro -s -u 5000000 lxc_conf_DIBBLER.xml
     will generate secure DIBBLER container at given rootfs for debug version with architecture arm_16.4 and OE 2.1
+    Note: Several input files can be provided in one command line
+          It is recommended to pass all .xml files related to one container in one run to handle
+          dependencies correctly
 """
-
-    parser.add_option("-f", "--file",   dest = "filename",
-                                        action = "store", type = "string",
-                                        help = "XML container configuration to parse and generate container from")
 
     parser.add_option("-r", "--rootfs", dest = "rootfs",
                                         action = "store", type = "string",
                                         help = "rootfs directory where container dir and its files will be generated")
 
-    parser.add_option("-s",
+    parser.add_option("-s","--secure",
                                         dest = "secure", action = "store_true",
                                         help = "Create unprivileged container")
 
-    parser.add_option("-S", "--soc",    dest = "soc",
-                                        action = "store", type = "string",
-                                        help = "Platform Unique arch_version for example arm_16.3, arm_16.4 ")
+    parser.add_option("-t", "--tags",
+                                        dest = "tags", action = "store", type = "string",
+                                        help = "tags")
 
-    parser.add_option("-o", "--oe",     dest = "oe",
-                                        action = "store", type = "string",
-                                        help = "OE/Yocto Version [2.0 | 2.1 | 2.2]")
-
-    parser.add_option("-e",
-                                        dest = "shared_rootfs", action = "store_true",
+    parser.add_option("-e", "--sharedRootfs",
+                                        dest = "sharedRootfs", action = "store_true",
                                         help = "Containers share rootfs with host")
 
-    parser.add_option("-v", "--ver",    dest = "version",
-                                        action = "store", type = "string",
-                                        help = "debug, release or production")
+    parser.add_option("-S", "--sanity",
+                                        dest = "enableMountCheck", action = "store_true",
+                                        help = "Enable sanity check")
+
+    parser.add_option("-u", "--usleep",
+                                        dest = "sleepUs", action = "store", type = "int", default = 500000,
+                                        help = "How many microseconds to sleep, after sending systemd-notify")
 
     (options, args) = parser.parse_args()
 
-    input_xml = options.filename
-
     rootfsPath = options.rootfs
-
-    soc = options.soc
-
-    oe = options.oe
 
     secure = False if options.secure == None else options.secure
 
-    shared_rootfs = False if options.shared_rootfs == None else options.shared_rootfs
+    sharedRootfs = False if options.sharedRootfs == None else options.sharedRootfs
 
-    version = options.version
+    enableMountCheck = False if options.enableMountCheck == None else options.enableMountCheck
 
-    if not (rootfsPath):
+    tags = options.tags
+
+    sleepUs = options.sleepUs
+
+    if not (rootfsPath) or len(args) == 0:
         print parser.print_help()
         exit(1)
 
-    if (input_xml) :
-        parse_xml(input_xml, rootfsPath, soc, oe, shared_rootfs, version, secure);
-    else:
-        print parser.print_help()
+    for inputXml in args:
+        parse_xml(inputXml, rootfsPath, sharedRootfs, secure, tags, enableMountCheck, sleepUs);
+
+    wasError = False
+    for rootfs in containers_rootfs.values():
+        if rootfs.checkLibraryDeps():
+            wasError = True
+
+    if wasError:
+        sys.exit(1)
 
 if __name__ == "__main__":
         main()

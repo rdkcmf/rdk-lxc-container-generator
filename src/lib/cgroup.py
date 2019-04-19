@@ -16,6 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
+from sanity_check import cSanityCheck
+
 ################################################################################
 #   class DeviceCgroup(object):
 #
@@ -23,6 +25,9 @@
 #
 ################################################################################
 class cCgroup(object):
+    def __init__(self, sanityCheck):
+        self.sanityCheck = sanityCheck
+
     def devNull(self):
         return "# /dev/null\nlxc.cgroup.devices.allow = c 1:3 rw\n"
 
@@ -47,21 +52,22 @@ class cCgroup(object):
         deviceCgroup = CGroupNode.find("DeviceCgroup");
         if (deviceCgroup != None):
             for device in deviceCgroup:
-                if (device != None and device.text != None):
-                    if ("name" in device.attrib and device.attrib["name"] != None):
-                        entry += "# %s\n"% device.attrib["name"]
-                    if (device.tag == "DevicesDeny"):
-                        entry += "lxc.cgroup.devices.deny = %s\n"% device.text
-                    elif (device.tag == "DevicesAllow"):
-                        entry += "lxc.cgroup.devices.allow = %s\n"% device.text
-                elif (device.tag == "AllowDefaultDevices" and "enable" in device.attrib and device.attrib["enable"] == "yes"):
-                    entry += "# default allowed devices\n"
-                    entry += self.devNull()
-                    entry += self.devZero()
-                    entry += self.devFull()
-                    entry += self.devRandom()
-                    entry += self.devURandom()
-                    entry += self.devTty()
+                if (self.sanityCheck.validateTags(device) == True):
+                    if (device != None and device.text != None):
+                        if ("name" in device.attrib and device.attrib["name"] != None):
+                            entry += "# %s\n"% device.attrib["name"]
+                        if (device.tag == "DevicesDeny"):
+                            entry += "lxc.cgroup.devices.deny = %s\n"% device.text
+                        elif (device.tag == "DevicesAllow"):
+                            entry += "lxc.cgroup.devices.allow = %s\n"% device.text
+                    elif (device.tag == "AllowDefaultDevices" and "enable" in device.attrib and device.attrib["enable"] == "yes"):
+                        entry += "# default allowed devices\n"
+                        entry += self.devNull()
+                        entry += self.devZero()
+                        entry += self.devFull()
+                        entry += self.devRandom()
+                        entry += self.devURandom()
+                        entry += self.devTty()
         return entry
 
     def createCGroupConf(self, CGroupNode):
@@ -75,6 +81,10 @@ class cCgroup(object):
             memoryLimit = CGroupNode.find("MemoryLimit");
             if (memoryLimit != None and memoryLimit.text != None):
                 entry += "lxc.cgroup.memory.limit_in_bytes = %s\n"%memoryLimit.text
+
+            memoryMemSwapLimit = CGroupNode.find("MemoryMemSwapLimit")
+            if (memoryMemSwapLimit != None and memoryMemSwapLimit.text != None):
+                entry += "lxc.cgroup.memory.memsw.limit_in_bytes = %s\n"%memoryMemSwapLimit.text
 
             SoftMemoryLimit = CGroupNode.find("SoftMemoryLimit");
             if (SoftMemoryLimit != None and SoftMemoryLimit.text != None):
