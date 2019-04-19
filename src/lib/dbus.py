@@ -44,7 +44,7 @@ class cDbus(object):
                 entry += "lxc.mount.entry = /%s %s none ro,bind,nosuid,nodev  0 0\n"%(self.getLibDbusPath(), self.getLibDbusPath())
 
                 self.rootfs.makeFile( "%s/%s"%(self.rootfs.getPathRootfsHost(), self.getSocketPath()))
-                self.rootfs.makeFile( "%s/%s"%(self.rootfs.getPathRootfsHost(), self.getLibDbusPath()))
+                self.rootfs.createMountPointForFile(self.getLibDbusPath())
 
             else:
                 entry = "\n# D-Bus disabled\n"

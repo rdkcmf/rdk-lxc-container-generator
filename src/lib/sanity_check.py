@@ -17,67 +17,168 @@
 # limitations under the License.
 ################################################################################
 import os
+import sys
+import ConfigParser
+import os.path
+from distutils.log import info
+
+################################################################################
+#    class cTag(object)
+#        Represent the single tag, defined in config file
+################################################################################
+class cTag(object):
+    def __init__(self, name):
+        self.name = name
+        self.allowsValues = []
+        self.value = ""
+
+    def getName(self):
+        return self.name
+
+    def getValue(self):
+        return self.value
+
+    def setAllowedValue(self, value):
+        self.allowsValues.append(value)
+
+    def isAllowed(self, value):
+        for entry in self.allowsValues:
+            if (value == entry):
+                return True
+        return False
+
+    def inSet(self, tagvaluestring):
+        tagvalues = tagvaluestring.split(":")
+        for tagvalue in tagvalues:
+            if (tagvalue == self.value):
+                return True
+        return False
+
+    def setValue(self, value):
+        if(self.isAllowed(value)):
+            self.value = value
+        else:
+            raise Exception("[!!! ERROR !!!] The given tag was not defined in config. Tag name = %s, given value = %s, Allowed values = %s "%(self.name, value, self.allowsValues))
+
+################################################################################
+#    class cRangeTag(object)
+#        Represent the range tag, defined in config file
+################################################################################
+class cRangeTag(object):
+    def __init__(self, name):
+        self.name = name
+        self.value = 0
+
+    def getName(self):
+        return self.name
+
+    def getValue(self):
+        return self.value
+
+    def inRange(self, rrange):
+        x = 0
+        y = 0
+
+        parts = rrange.split("..")
+        m = len(parts)
+
+        if m <= 0 or m > 2:
+            raise Exception("[!!! ERROR !!!] Passed range is invalid: %s "%(rrange))
+
+        try:
+            if (parts[0] == ""):
+                x = 0
+            else:
+                x = int(parts[0])
+            y = x
+        except ValueError as ex:
+            raise Exception("[!!! ERROR !!!] Passed range is no numeric range: %s "%(rrange))
+
+        if len(parts) == 2:
+            try:
+                if (parts[1] == ""):
+                    y = sys.maxint
+                else:
+                    y = int(parts[1])
+            except ValueError as ex:
+                raise Exception("[!!! ERROR !!!] Passed range is no numeric range: %s "%(rrange))
+
+        return (x <= self.value and self.value <= y)
+
+    def isAllowed(self, value):
+        try:
+            int_value = int(value)
+        except ValueError as ex:
+            return False
+
+        return int_value >= 0
+
+    def setValue(self, value):
+        if(self.isAllowed(value)):
+            self.value = int(value)
+        else:
+            raise Exception("[!!! ERROR !!!] The given tag was not defined in config. Tag name = %s, given value = %s, Allowed values = numeric >= 0 "%(self.name, value))
 
 ################################################################################
 #   class cSanityCheck(object)
 ################################################################################
-
 class cSanityCheck(object):
-    def __init__(self,soc, oe, version, privileged, name, rootfsPath):
+    def __init__(self, privileged, name, rootfsPath, confPath, givenTags, enableMountCheck):
         self.name = name
-        self.soc = soc
-        self.oe = oe
-        self.version = version
         self.privileged = privileged
         self.rootfsPath = rootfsPath
+        self.confPath = confPath
+        self.enableMountCheck = enableMountCheck
         self.dirList = []
-        self.nonFlashDirs = [
-        "/var",                     # tmpfs directory
-        "/run",                     # tmpfs directory
-        "/tmp",                     # tmpfs directory
-        "/mnt",                     # directory contains storages mount points
-        "/opt",                     # tmpfs directory
-        "/media",                   # directory contains storages mount points
-        "/dev",                     # direcotry contains devices mknodes
-        "proc",                     # proc filesystem
-        "/proc",                    # proc filesystem
-        "sysfs",                    # sys filesystem
-        "/sys",                     # sys filesystem
-        "tmpfs"                     # tmpfs filesystenm (skipping local tmpfs mounted in container)
-     ]
+        self.tags = []
+        self.rangeTags = []
+        self.writableDirs = []
+        self.executableDirs = []
+        self.paresConfig()
+        self.parseTags(givenTags)
 
-        self.execDirs = [
-        "/usr/bin",
-        "/usr/sbin",
-        "/sbin",
-        "/bin",
-        "/usr/lib",
-        "/lib",
-        "/etc"
-    ]
+    def paresConfig(self):
+        config = ConfigParser.RawConfigParser()
+        config.optionxform = str
+        config.read(self.confPath)
+        self.executableDirs = config.get("EXECUTABLE","paths").split('\n')
+        self.writableDirs = config.get("WRITABLE","paths").split('\n')
+
+        for options in config.options("TAGS"):
+            entries = config.get("TAGS",options).split('\n')
+            tag = cTag(options)
+            for entry in entries:
+                items = entry.split(",")
+                for item in items:
+                    tag.setAllowedValue(item.strip())
+            self.tags.append(tag)
+
+        for options in config.options("RANGE"):
+            rangeTag = cRangeTag(options)
+            self.rangeTags.append(rangeTag)
+
+    def parseTags(self, tagsString):
+        entries = tagsString.split(",")
+        for entry in entries:
+            tag = entry.split("=")
+            for iter in self.tags:
+                if(iter.getName() == tag[0]):
+                    iter.setValue(tag[1])
+            for iter in self.rangeTags:
+                if(iter.getName() == tag[0]):
+                    iter.setValue(tag[1])
 
     def isPrivileged(self):
         return self.privileged
 
     def getPlatformSettings(self):
-        return "soc = %s, oe = %s, version = %s "%(self.soc, self.oe, self.version)
-
-    def getVersion(self):
-        return self.version
+        info = " "
+        for entry in self.tags:
+            info += "%s = %s "%(entry.getName(), entry.getValue())
+        return info
 
     def getName(self):
         return self.name
-
-    def validateVersion(self, node):
-        if (node != None):
-            if ('version' in node.attrib and node.attrib["version"] == self.version):
-                return True
-            elif (not 'version' in node.attrib):
-                return True
-            else:
-                return False
-        else:
-            raise Exception("[ERROR] Invalid entry")
 
     def validateTextEntry(self, entry):
         if (entry != None and entry.text != None):
@@ -91,41 +192,36 @@ class cSanityCheck(object):
             return False
         return True
 
-    def isOnFlash(self, dir):
-        for entry in self.nonFlashDirs:
+    def isWritable(self, dir):
+        for entry in self.writableDirs:
             if (dir.startswith(entry)):
                 return False
         return True
 
-    def isExecDir(self, dir):
-        for entry in self.execDirs:
+    def isExecutable(self, dir):
+        for entry in self.executableDirs:
             if (dir.startswith(entry)):
                 return True
         return False
 
     def validateOptions(self, mountBind, fsType, options):
-        if (self.version == "production" ): # in debug and release we do not have to follow NASC requirements
-# Check if tmpfs is mounted with defined size option           
+        if(self.enableMountCheck):
             if (fsType == "tmpfs"):
                 if (options.find("size") == -1):
                     raise Exception("[!!! ERROR !!!] The tmpfs type requires sieze option define. Current settings: mountBind = %s options = %s "%(mountBind, options))
-
-# FLASH and not EXEC
-            if(self.isOnFlash(mountBind) and not self.isExecDir(mountBind)):
+            if(self.isWritable(mountBind) and not self.isExecutable(mountBind)):
                 if options.find("ro") != -1 and  options.find("nosuid") != -1 and  options.find("nodev") != -1 and options.find("noexec") != -1:
                     return True
                 else:
                     raise Exception("[!!! ERROR !!!] Invalid mount bind options. Recomended nodev nosuid noexec ro  Current settings: mountBind = %s options = %s "%(mountBind, options))
-# NOT on FLASH and not dev ?
-            elif (not self.isOnFlash(mountBind) and not mountBind.startswith("/dev")):
+            elif (not self.isExecutable(mountBind) and not mountBind.startswith("/dev")):
                 if options.find("nosuid") != -1 and  options.find("nodev") != -1 and options.find("noexec") != -1:
                     return True
                 else:
                     raise Exception("[!!! ERROR !!!] Invalid mount bind options nosuid nodev noexec . Current settings: mountBind = %s options = %s "%(mountBind, options))
 
-    def validateMountBind(self, mountBind):
-        #check if it is not in tmpfs directory
-        if (self.isOnFlash(mountBind)and not self.pathExist(mountBind)):
+    def validateMountBind(self, mountBind, options):
+        if (self.isWritable(mountBind) and (options.find("optional") == -1) and not self.pathExist(mountBind)):
             raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(mountBind))
 
     def addDir(self, dir):
@@ -133,44 +229,24 @@ class cSanityCheck(object):
 
     def checkNestedMountBinds(self, mountBind):
         for item in self.dirList:
-            #  print "item =%s mount =%s"%(item, mountBind)
             if (mountBind.startswith(item+"/")):
                 return False
-
         return True
 
-################################################################################
-#
-#   validateSocOE(node):
-#       Validate if node matches the SOC and OE tag
-#
-################################################################################
-    def validateSocOE(self, node):
+    def validateTags(self,node):
         if (node != None):
-            if ('SOC_VER' in node.attrib and node.attrib["SOC_VER"] == self.soc and 'OE_VER' in node.attrib and node.attrib["OE_VER"] == self.oe):
-                return True
-            elif ('SOC_VER' in node.attrib and node.attrib["SOC_VER"] == self.soc and not 'OE_VER' in node.attrib):
-                return True
-            elif ('OE_VER' in node.attrib and node.attrib["OE_VER"] == self.oe and not 'SOC_VER' in node.attrib):
-                return True
-            elif (not 'SOC_VER' in node.attrib and not 'OE' in node.attrib):
-                return True
-            else:
-                return False
-        else:
-            raise Exception("[ERROR] Invalid entry")
+            for entry in self.tags:
+                if(entry.getName() in node.attrib and not entry.inSet(node.attrib[entry.getName()])):
+                    return False
+            for entry in self.rangeTags:
+                if(entry.getName() in node.attrib and not entry.inRange(node.attrib[entry.getName()])):
+                    return False
+        return True
 
-################################################################################
-#
-#   createRootfsConf(rootfs, rootfsNode):
-#
-#       parse the mount points configuration inside the xml
-#       return the configuration
-#
-################################################################################
-
-    def validateAllTags(self, node):
-        if (self.validateSocOE(node) == True and self.validateVersion(node) == True):
-            return True
-        else:
+    def validateAutoMount(self, entry):
+        valid_automount_options = ["cgroup:ro", "cgroup:mixed", "sys:ro", "sys:mixed", "sys", "proc:mixed", "proc"]
+        if not self.validateTextEntry(entry):
             return False
+        if entry.text not in valid_automount_options:
+            raise Exception("[!!! ERROR !!!] Invalid AutoMount option value (%s) in %s"%(entry.text, self.name))
+        return True
