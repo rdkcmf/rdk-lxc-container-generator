@@ -230,6 +230,9 @@ class cRootfs(object):
         if not self.libsScanned:
             self.scanLibsDir("lib")
             self.scanLibsDir("usr/lib")
+            self.scanLibsDir("usr/lib/jvm/openjdk-8/jre/lib/arm")
+            self.scanLibsDir("usr/lib/jvm/openjdk-8/jre/lib/arm/jli")
+            self.scanLibsDir("usr/lib/jvm/openjdk-8/jre/lib/arm/server")
             # A shared lib for gstreamer modules can be installed here, so scan
             self.scanLibsDir("usr/lib/gstreamer-1.0")
             self.libsScanned = True
