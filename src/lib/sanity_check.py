@@ -48,11 +48,16 @@ class cTag(object):
         return False
 
     def inSet(self, tagvaluestring):
-        tagvalues = tagvaluestring.split(":")
-        for tagvalue in tagvalues:
-            if (tagvalue == self.value):
-                return True
-        return False
+        def matched(value, tagvaluestring):
+            for e in tagvaluestring.split(":"):
+                if value == e:
+                    return True
+                if e.endswith("*") and value.startswith(e[:-1]):
+                    return True
+            return False
+        if tagvaluestring.startswith("!"):
+            return not matched(self.value, tagvaluestring[1:])
+        return matched(self.value, tagvaluestring)
 
     def setValue(self, value):
         if(self.isAllowed(value)):
@@ -123,8 +128,9 @@ class cRangeTag(object):
 #   class cSanityCheck(object)
 ################################################################################
 class cSanityCheck(object):
-    def __init__(self, privileged, name, rootfsPath, confPath, givenTags, enableMountCheck):
+    def __init__(self, filename, privileged, name, rootfsPath, confPath, givenTags, enableMountCheck):
         self.name = name
+        self.filename = filename
         self.privileged = privileged
         self.rootfsPath = rootfsPath
         self.confPath = confPath
@@ -250,3 +256,65 @@ class cSanityCheck(object):
         if entry.text not in valid_automount_options:
             raise Exception("[!!! ERROR !!!] Invalid AutoMount option value (%s) in %s"%(entry.text, self.name))
         return True
+
+    def report_skipping_entry(self, node, path):
+        # Implement notification for different types of elements
+        def c_default(node):
+            v = "<"+node.tag
+            for (an,av) in node.attrib.items():
+                v += " %s=\"%s\""%(an,av)
+            return v + ">"
+
+        # special handling
+        def c_env_var(node):
+            return "for variable = "+node.text
+        def c_env_mpoint(node):
+            e=node.find("Source")
+            if e == None:
+                e = "????"
+            else:
+                e = e.text
+            return "for mount point %s"%e
+        def c_env_libs(node):
+            return "for variable = "+node.text
+        handlers = {
+            "CONTAINER.LxcConfig.Environment.Variable" : c_env_var,
+            "CONTAINER.LxcConfig.Rootfs.MountPoints.Entry" : c_env_mpoint,
+            "CONTAINER.LxcConfig.Rootfs.LibsRoBindMounts.Entry" : c_env_libs
+        }
+        if path.replace(".Group.",".") in handlers:
+            entryName = handlers[path.replace(".Group.",".")](node)
+        else:
+            entryName = c_default(node)
+        messageFooter = ""
+        if "_start_line_number" in dir(node):
+            if node._start_line_number == node._end_line_number:
+                messageFooter += "\t (%s:%d)"%(os.path.basename(self.filename), node._start_line_number)
+            else:
+                messageFooter += "\t (%s:%d-%d)"%(os.path.basename(self.filename), node._start_line_number, node._end_line_number)
+        print("[%s] Skipping entry %s \t Current Settings: %s %s"%(self.getName(), entryName, self.getPlatformSettings(), messageFooter))
+
+    # Apply conditional rules on xml tree
+    def filter_out_inactive_tags(self,node,path=None):
+        if path == None:
+            path = node.tag
+        index = 0
+        for child in node[:]:
+            cpath = path+"."+child.tag
+            if not self.validateTags(child):
+                # child filtered out
+                self.report_skipping_entry(child, cpath)
+                node.remove(child)
+                continue
+            self.filter_out_inactive_tags(child, cpath)
+            if child.tag != "Group":
+                index = index+1
+                continue
+            # Special handling for <Group> element
+            # Extract all sub-elements instead
+            # <Group ATTRS> can be used to control set of parameters
+            for sub in child[:]:
+                child.remove(sub)
+                node.insert(index, sub)
+                index = index+1
+            node.remove(child)

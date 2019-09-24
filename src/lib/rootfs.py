@@ -37,6 +37,7 @@ class cRootfs(object):
         self.nameToUidMap = dict()
         self.groupToGidMap = dict()
         self.reElfRequired = re.compile(r"\(NEEDED\)\s+Shared library: \[([^\]]*)\]")
+        self.libScanDirs = { "lib", "usr/lib", "usr/lib/gstreamer-1.0" }
 
     def isRootfsShared(self):
         return self.shareRootfs
@@ -212,10 +213,17 @@ class cRootfs(object):
         self.libs[name]["deps"] = list()
         self.libs[name]["required_by"] = list()
 
+    def addLibsScanDir(self, dir):
+        if dir in self.libScanDirs:
+            self.log_warn("LibsScanDir [%s] duplicated!. Ignoring it" % dir)
+            return
+        # Adding a new dir requires rescan of the libraries.
+        self.libsScanned = False
+        self.libScanDirs.add(str(dir))
 
     def scanLibsDir(self,subdir):
-        """Scan directory (/lib or /usr/lib) then add entries to dict"""
-        for root, dirs, files in os.walk(self.rootfsPath + "/"+subdir):
+        """Scan directories then add entries to dict"""
+        for root, dirs, files in os.walk(self.rootfsPath + "/" + str(subdir)):
             if (root != self.rootfsPath +"/"+subdir):
                 continue
             for file in sorted(files):
@@ -228,11 +236,11 @@ class cRootfs(object):
 
     def scanLibDirs(self):
         if not self.libsScanned:
-            self.scanLibsDir("lib")
-            self.scanLibsDir("usr/lib")
-            # A shared lib for gstreamer modules can be installed here, so scan
-            self.scanLibsDir("usr/lib/gstreamer-1.0")
+            # Scan all directories listed in libScanDirs set
+            for libDir in self.libScanDirs:
+                self.scanLibsDir(str(libDir))
             self.libsScanned = True
+
     def findLibByName(self, libName):
         """ Find libs version based on their name"""
         self.scanLibDirs()

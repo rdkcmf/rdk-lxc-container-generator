@@ -52,8 +52,7 @@ class cLauncher(object):
     def matchVersion(self, parentNode, nodeName):
         node = None
         for childNode in parentNode.iter(nodeName):
-            if(self.sanityCheck.validateTags(childNode)):
-                  node = childNode
+            node = childNode
         return node
 
     def getContainerName(self, lxcParams):
@@ -69,7 +68,7 @@ class cLauncher(object):
         if (lxcParams.find("ExecParams") != None and lxcParams.find("ExecParams").text != None):
             self.execName += " " + lxcParams.find("ExecParams").text
         output = lxcParams.find("Output")
-        if (output != None and output.attrib["enable"] == "true" and self.sanityCheck.validateTags(output) == True):
+        if (output != None and output.attrib["enable"] == "true"):
             self.logFileOpt = "-o " + output.find("LogFile").text
             self.logPriorityOpt = "-l " + output.find("LogPriority").text
 
