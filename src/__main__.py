@@ -20,7 +20,6 @@ import os
 import string
 import sys
 from optparse import OptionParser
-import xml.etree.ElementTree as ET
 
 from lib import cRootfs
 from lib import cLauncher
@@ -36,9 +35,28 @@ containers_GroupNames = dict()
 containers_UserNameRootFs = dict()
 containers_GroupNameRootFs = dict()
 
+# Force python XML parser not faster C accelerators
+# because we can't hook the C implementation
+sys.modules['_elementtree'] = None
+import xml.etree.ElementTree as ET
+
+class LineNumberingParser(ET.XMLParser):
+    def _start_list(self, *args, **kwargs):
+        # Here we assume the default XML parser which is expat
+        # and copy its element position attributes into output Elements
+        element = super(self.__class__, self)._start_list(*args, **kwargs)
+        element._start_line_number = self.parser.CurrentLineNumber
+        return element
+
+    def _end(self, *args, **kwargs):
+        element = super(self.__class__, self)._end(*args, **kwargs)
+        element._end_line_number = self.parser.CurrentLineNumber
+        return element
+
+
 def parse_xml(inputXml, rootfsPath, shareRootfs, secure, tags, enableMountCheck, sleepUs):
 
-    tree = ET.parse(inputXml)
+    tree = ET.parse(inputXml, parser=LineNumberingParser())
     container = tree.getroot()
     name = container.attrib["SandboxName"]
     append = False
@@ -56,7 +74,8 @@ def parse_xml(inputXml, rootfsPath, shareRootfs, secure, tags, enableMountCheck,
     main_base = os.path.dirname(__file__)
     confPath=main_base + "/conf" + "/config.ini"
 
-    sanityCheck = cSanityCheck(secure, name, rootfsPath, confPath, tags, enableMountCheck)
+    sanityCheck = cSanityCheck(inputXml, secure, name, rootfsPath, confPath, tags, enableMountCheck)
+    sanityCheck.filter_out_inactive_tags(container)
 
     if name not in containers_rootfs:
         containers_rootfs[name] = cRootfs(name, rootfsPath, shareRootfs)

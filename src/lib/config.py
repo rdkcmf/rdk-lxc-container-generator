@@ -50,7 +50,19 @@ class cConfig(object):
                 allUserNames["start"] = userName.text # main launcher doesn't have a ParamName attribute, so use "start"
             if (groupName != None and groupName.text != None):
                 allGroupNames["start"] = groupName.text
-    
+
+            extraUserNames = lxcConfigNode.find("ExtraUsers")
+            if extraUserNames != None:
+                for userName in extraUserNames.iter("UserName"):
+                    if (userName != None and userName.text != None):
+                        allUserNames["additional-" + userName.text] = userName.text
+
+            extraGroupNames = lxcConfigNode.find("ExtraGroups")
+            if extraGroupNames != None:
+                for groupName in extraGroupNames.iter("GroupName"):
+                    if (groupName != None and groupName.text != None):
+                        allGroupNames["additional-" + groupName.text] = groupName.text
+
         # add usernames and groupnames for secondary services if needed
         if (lxcParamsNode != None):
             for attachEntry in lxcParamsNode.iter('Attach'):
@@ -80,31 +92,30 @@ class cConfig(object):
     def createEnvConf(self, lxcConfigNode):
 
         entry = ""
-        envNode = lxcConfigNode.find("Environment");
+        envNode = lxcConfigNode.find("Environment")
 
         if (self.sanityCheck.validateTextEntry(envNode)):
             entry += "\n# Environment Variables Configuration\n"
             preload = list()
 
-            if envNode != None:
-                for variable in envNode.iter('Variable'):
-                    if (variable != None and variable.text != None):
-                        if (self.sanityCheck.validateTags(variable) == True):
-                            parts = variable.text.split("=")
-                            var_name = parts[0].strip();
-                            if var_name == "LD_PRELOAD":
-                                preload = parts[1].split(":")
-                            else:
-                                entry += "lxc.environment = %s\n"%(variable.text)
-                        else:
-                            print("[%s] Skipping entry for variable = %s \t Current Settings: %s "%(self.sanityCheck.getName(), variable.text, self.sanityCheck.getPlatformSettings()))
-            else:
-                print("We do not need to create Environment variables")
+            for variable in envNode.iter('Variable'):
+                if (variable != None and variable.text != None):
+                    parts = variable.text.split("=")
+                    var_name = parts[0].strip()
+                    if (var_name == "LD_PRELOAD" and len(parts) > 1):
+                        # avoid duplicates
+                        for solib in parts[1].split(":"):
+                            if solib not in preload:
+                                preload.append(solib)
+                    else:
+                        entry += "lxc.environment = %s\n"%(variable.text)
 
             if preload:
                 entry += "lxc.environment = LD_PRELOAD=%s\n"%(":".join(preload))
                 for preload_lib in preload:
                     self.rootfs.addLibraryRequired(preload_lib, 'LD_PRELOAD')
+        else:
+                print("We do not need to create Environment variables")
 
         return entry
 
@@ -204,51 +215,48 @@ class cConfig(object):
             entry += "\n# Mount Points Configuration\n"
             for mountPoint in mountPointNode.iter('Entry'):
                 if(mountPoint != None):
-                    if (self.sanityCheck.validateTags(mountPoint)):
-                        source = mountPoint.find("Source")
-                        destination = mountPoint.find("Destination")
-                        options = mountPoint.find("Options").text
-                        type = mountPoint.attrib["type"]
-                        dump = 0
-                        fsck = 0
-                        fsType = "none"
+                    source = mountPoint.find("Source")
+                    destination = mountPoint.find("Destination")
+                    options = mountPoint.find("Options").text
+                    type = mountPoint.attrib["type"]
+                    dump = 0
+                    fsck = 0
+                    fsType = "none"
 
-                        if (self.sanityCheck.validateTextEntry(mountPoint.find("Dump"))):
-                            dump = mountPoint.find("Dump").text
+                    if (self.sanityCheck.validateTextEntry(mountPoint.find("Dump"))):
+                        dump = mountPoint.find("Dump").text
 
-                        if (self.sanityCheck.validateTextEntry(mountPoint.find("Fsck"))):
-                            fsck = mountPoint.find("Fsck").text
+                    if (self.sanityCheck.validateTextEntry(mountPoint.find("Fsck"))):
+                        fsck = mountPoint.find("Fsck").text
 
-                        if (self.sanityCheck.validateTextEntry(mountPoint.find("FsType"))):
-                            fsType = mountPoint.find("FsType").text
+                    if (self.sanityCheck.validateTextEntry(mountPoint.find("FsType"))):
+                        fsType = mountPoint.find("FsType").text
 
-                        if (self.sanityCheck.validateTextEntry(source) and self.sanityCheck.validateTextEntry(destination)):
+                    if (self.sanityCheck.validateTextEntry(source) and self.sanityCheck.validateTextEntry(destination)):
 
-                            self.sanityCheck.validateMountBind(source.text, options)
-                            self.sanityCheck.validateOptions(source.text, fsType, options)
-                            if(source.text == destination.text):
-                                if(not self.sanityCheck.checkNestedMountBinds(source.text)):
-                                    raise Exception("[%s] Nested mount bind found =  %s ", source.text)
+                        self.sanityCheck.validateMountBind(source.text, options)
+                        self.sanityCheck.validateOptions(source.text, fsType, options)
+                        if(source.text == destination.text):
+                            if(not self.sanityCheck.checkNestedMountBinds(source.text)):
+                                raise Exception("[%s] Nested mount bind found =  %s ", source.text)
 
-                            entry += "lxc.mount.entry = %s %s %s %s %s %s\n"%(source.text,
-                                                                            destination.text,
-                                                                            fsType,
-                                                                            options,
-                                                                            dump,
-                                                                            fsck)
+                        entry += "lxc.mount.entry = %s %s %s %s %s %s\n"%(source.text,
+                                                                        destination.text,
+                                                                        fsType,
+                                                                        options,
+                                                                        dump,
+                                                                        fsck)
 
-                            self.createMountPoint(type, destination.text, source.text)
-                            if (type == "dir"):
-                                self.sanityCheck.addDir(source.text)
-                                for unusedEntry in mountPoint.iter('Unused'):
-                                    if (self.sanityCheck.validateTextEntry(unusedEntry)):
-                                        self.rootfs.unusedList.append(unusedEntry.text)
-                                self.rootfs.checkElfDepsForDirectoryMountPoint(destination.text, source.text)
+                        self.createMountPoint(type, destination.text, source.text)
+                        if (type == "dir"):
+                            self.sanityCheck.addDir(source.text)
+                            for unusedEntry in mountPoint.iter('Unused'):
+                                if (self.sanityCheck.validateTextEntry(unusedEntry)):
+                                    self.rootfs.unusedList.append(unusedEntry.text)
+                            self.rootfs.checkElfDepsForDirectoryMountPoint(destination.text, source.text)
 
-                        else:
-                            raise Exception("INVALID DATA MOUNT POINT")
                     else:
-                        print("[%s] Skipping entry  for %s \t Current Settings: %s" %( self.sanityCheck.getName(), mountPoint.find("Source").text, self.sanityCheck.getPlatformSettings()))
+                        raise Exception("INVALID DATA MOUNT POINT")
 
         return entry
 
@@ -275,19 +283,22 @@ class cConfig(object):
         entry = ""
         if libBindingsNode != None:
             entry += "\n# Mount Binds Configuration For Libs\n"
+            for libsScanDir in libBindingsNode.iter('LibsScanDir'):
+                if self.sanityCheck.validateTextEntry(libsScanDir):
+                    self.rootfs.addLibsScanDir(libsScanDir.text)
+                else:
+                   raise Exception("[!!! ERROR !!!] Invalid <LibsScanDir> tag: Must contain a dir")
+
             for libBinding in libBindingsNode.iter('Entry'):
                 if (self.sanityCheck.validateTextEntry(libBinding)):
-                    if (self.sanityCheck.validateTags(libBinding)):
-                        libList = self.rootfs.findLibByName(libBinding.text)
-                        for source in libList:
-                            if(self.sanityCheck.pathExist(source)):
-                                entry += "lxc.mount.entry = /%s %s none ro,bind,nodev,nosuid 0 0\n"%(source,
-                                                                                            source)
-                                self.rootfs.createMountPointForFile(source)
-                            else:
-                                raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(source))
-                    else:
-                        print("[%s] Skipping entry for libName = %s \t Current Settings: %s "%(self.sanityCheck.getName(), libBinding.text, self.sanityCheck.getPlatformSettings()))
+                    libList = self.rootfs.findLibByName(libBinding.text)
+                    for source in libList:
+                        if(self.sanityCheck.pathExist(source)):
+                            entry += "lxc.mount.entry = /%s %s none ro,bind,nodev,nosuid 0 0\n"%(source,
+                                                                                        source)
+                            self.rootfs.createMountPointForFile(source)
+                        else:
+                            raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(source))
         return entry
 
     def generateHardlinks(self, libHardlinksNode):
@@ -295,15 +306,12 @@ class cConfig(object):
         if libHardlinksNode is not None:
             for libHardlink in libHardlinksNode.iter('Entry'):
                 if self.sanityCheck.validateTextEntry(libHardlink):
-                    if self.sanityCheck.validateTags(libHardlink):
-                        libList = self.rootfs.findLibByName(libHardlink.text)
-                        for source in libList:
-                            if self.sanityCheck.pathExist(source):
-                                self.rootfs.createHardlinkForFile(source)
-                            else:
-                                raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(source))
-                    else:
-                        print("[%s] Skipping entry for libName = %s \t Current Settings: %s "%(self.sanityCheck.getName(), libHardlink.text, self.sanityCheck.getPlatformSettings()))
+                    libList = self.rootfs.findLibByName(libHardlink.text)
+                    for source in libList:
+                        if self.sanityCheck.pathExist(source):
+                            self.rootfs.createHardlinkForFile(source)
+                        else:
+                            raise Exception("[!!! ERROR !!!] Rootfs does not contain (%s) - No such file or directory"%(source))
 
     def createRootfsConf(self, rootfsNode):
 
