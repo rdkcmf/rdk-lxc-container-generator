@@ -26,6 +26,15 @@ from lib import cLauncher
 from lib import cConfig
 from lib import cSanityCheck
 
+try:
+    from lib.dobby import cConfigDobby
+    from lib.dobby import cRootfsDobby
+    from lib.dobby import cLauncherDobby
+except ImportError:
+    cConfigDobby = None
+    cRootfsDobby = None
+    cLauncherDobby = None
+
 # per container structs to preserve container information when processing container "append" xml
 # indexed by container name
 containers_rootfs = dict()
@@ -77,14 +86,28 @@ def parse_xml(inputXml, rootfsPath, shareRootfs, secure, tags, enableMountCheck,
     sanityCheck = cSanityCheck(inputXml, secure, name, rootfsPath, confPath, tags, enableMountCheck)
     sanityCheck.filter_out_inactive_tags(container)
 
+    orig_name = name
+    containerType = container.get("Type")
+    if containerType == "dobby":
+        if cRootfsDobby is None or cLauncherDobby is None or cConfigDobby is None:
+            raise Exception("dobby generator missing")
+        name = "%s_%s" % (orig_name, containerType)
+        rootfs_class = cRootfsDobby
+        launcher_class = cLauncherDobby
+        config_class = cConfigDobby
+    else:
+        rootfs_class = cRootfs
+        launcher_class = cLauncher
+        config_class = cConfig
+
     if name not in containers_rootfs:
-        containers_rootfs[name] = cRootfs(name, rootfsPath, shareRootfs)
+        containers_rootfs[name] = rootfs_class(orig_name, rootfsPath, shareRootfs)
     rootfs = containers_rootfs[name]
     if(not append):
         rootfs.createContainerTree()
 
     if name not in containers_launchers:
-        containers_launchers[name] = cLauncher(sanityCheck, rootfs, sleepUs)
+        containers_launchers[name] = launcher_class(sanityCheck, rootfs, sleepUs)
     launcher = containers_launchers[name]
     lxcParamsNode = launcher.matchVersion(container,"LxcParams")
     if (lxcParamsNode != None):
@@ -101,7 +124,7 @@ def parse_xml(inputXml, rootfsPath, shareRootfs, secure, tags, enableMountCheck,
         containers_GroupNames[name] = dict()
     groupNames = containers_GroupNames[name]
 
-    config = cConfig(sanityCheck, rootfs, secure, append,
+    config = config_class(sanityCheck, rootfs, secure, append,
                      userNames.get("start"), groupNames.get("start")) # pass main launcher user and group from "base" XML
     lxcConfigNode = container.find("LxcConfig")
     if (lxcConfigNode != None):

@@ -1,0 +1,49 @@
+################################################################################
+# If not stated otherwise in this file or this component's Licenses.txt file the
+# following copyright and licenses apply:
+#
+# Copyright 2017 Liberty Global B.V.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+import os
+import json
+
+
+################################################################################
+#   class cJsonUtils(object):
+################################################################################
+class cJsonUtils(object):
+    @staticmethod
+    def read(path):
+        if os.path.exists(path):
+            with open(path) as json_file:
+                return json.load(json_file)
+        return None
+
+    @staticmethod
+    def write(path, data):
+        with open(path, 'w') as outfile:
+            json.dump(data, outfile, indent=4)
+
+    @staticmethod
+    def merge(config, entry):
+        for key, value in entry.items():
+            if key not in config:
+                config[key] = value
+            elif isinstance(value, list):
+                config[key].extend(value)
+            elif isinstance(value, dict):
+                cJsonUtils.merge(config[key], value)
+            else:
+                config[key] = value
