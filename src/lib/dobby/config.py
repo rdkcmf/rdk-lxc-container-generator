@@ -67,6 +67,61 @@ class cConfigDobby(cConfig):
 
         return entry
 
+    def createStorageConf(self, configNode):
+
+        entry = {}
+
+        for storageNode in configNode.iter('Storage'):
+            if storageNode is not None:
+                entry["rdkPlugins"] = {
+                    "storage": {
+                        "required": False,
+                        "data": {
+                            "loopback": []
+                        }
+                    }
+                }
+
+                for loopback in storageNode.iter('Loopback'):
+                    destination = loopback.attrib["destination"]
+                    source = loopback.attrib["source"]
+
+                    loopback_entry = {
+                        "destination": destination,
+                        "flags": 14,
+                        "fstype": "ext4",
+                        "source": source
+                    }
+
+                    entry["rdkPlugins"]["storage"]["data"]["loopback"].append(loopback_entry)
+
+        return entry
+
+    def createThunderConfig(self, configNode):
+
+        entry = {}
+
+        thunderNode = configNode.find("Thunder")
+
+        if thunderNode is not None:
+            enable = thunderNode.attrib["enable"]
+            bearerUrl = thunderNode.attrib["bearerUrl"]
+
+            if enable == "true":
+                entry["rdkPlugins"] = {
+                    "thunder": {
+                        "required": True,
+                        "dependsOn": ["networking"],
+                        "data": {}
+                    }
+                }
+
+            if bearerUrl is not None:
+                entry["rdkPlugins"]["thunder"]["data"]["bearerUrl"] = bearerUrl
+
+        return entry
+
+
     def createNetworkConf(self, configNode):
 
         entry = {}
@@ -95,6 +150,58 @@ class cConfigDobby(cConfig):
                 dnsmasq = networkNode.find("DNSMasq")
                 if dnsmasq is not None and "enable" in dnsmasq.attrib:
                     entry["rdkPlugins"]["networking"]["data"]["dnsmasq"] = dnsmasq.attrib["enable"] == "true"
+
+                multicast = networkNode.find("Multicast")
+                if multicast is not None and "enable" in multicast.attrib:
+                    entry["rdkPlugins"]["networking"]["data"]["multicastForwarding"] = []
+                    for rule in multicast.iter("Rule"):
+                        multicast_data = {
+                            "ip": rule.attrib["ip"],
+                            "port": int(rule.attrib["port"])
+                        }
+                        entry["rdkPlugins"]["networking"]["data"]["multicastForwarding"].append(multicast_data)
+
+
+                port_forwarding = networkNode.find("PortForwarding")
+                if port_forwarding is not None and "enable" in port_forwarding.attrib:
+                    entry["rdkPlugins"]["networking"]["data"]["portForwarding"] = {}
+                    for rule in port_forwarding.iter("Rule"):
+                        port_forward_rule = {
+                            "port": int(rule.attrib["port"]),
+                            "protocol": rule.attrib["protocol"]
+                        }
+
+                        if rule.attrib["direction"] == "ContainerToHost":
+                            if entry["rdkPlugins"]["networking"]["data"]["portForwarding"].get("containerToHost") is None:
+                                entry["rdkPlugins"]["networking"]["data"]["portForwarding"]["containerToHost"] = []
+
+                            entry["rdkPlugins"]["networking"]["data"]["portForwarding"]["containerToHost"].append(port_forward_rule)
+                        elif rule.attrib["direction"] == "HostToContainer":
+                            if entry["rdkPlugins"]["networking"]["data"]["portForwarding"].get("hostToContainer") is None:
+                                entry["rdkPlugins"]["networking"]["data"]["portForwarding"]["hostToContainer"] = []
+
+                            entry["rdkPlugins"]["networking"]["data"]["portForwarding"]["hostToContainer"].append(port_forward_rule)
+                        else:
+                            raise Exception("INVALID PORT FORWARDING RULE")
+        return entry
+
+    def createSeccompConf(self, configNode):
+
+        entry = {}
+        seccompProfile = configNode.find("SeccompProfile")
+
+        if self.sanityCheck.validateTextEntry(seccompProfile):
+            names = []
+            seccomp = {"defaultAction": "SCMP_ACT_ERRNO", "architectures": "SCMP_ARCH_ARM","syscalls":[{"names":names,"action":"SCMP_ACT_ALLOW"}]}
+
+            file_base = os.path.dirname(__file__)
+            seccompFile = file_base + "/" + seccompProfile.text
+            if os.path.exists(seccompFile):
+                with open(seccompFile, "r") as file:
+                    for sysCall in file:
+                        if sysCall is not None:
+                            names.append(sysCall.rstrip("\n"))
+                merge(entry, {"linux": {"seccomp": seccomp}})
 
         return entry
 
@@ -167,7 +274,7 @@ class cConfigDobby(cConfig):
                                     {
                                         "destination": os.path.join("/", source),
                                         "options": ["ro", "bind", "nodev", "nosuid"],
-                                        "source": source,
+                                        "source":  os.path.join("/", source),
                                         "type": "bind"
                                     }
                                 ]
@@ -213,7 +320,11 @@ class cConfigDobby(cConfig):
                     gid = self.rootfs.groupNameToGid(groupName.text)
                     merge(entry, {
                         "process": {
-                            "user": {"uid": 0, "gid": 0},
+                            "user": {
+                                "uid": 0,
+                                "gid": 0,
+                                "additionalGids": []
+                            },
                         },
                         "linux": {
                             "uidMappings": [
@@ -227,11 +338,26 @@ class cConfigDobby(cConfig):
                                 {
                                     "hostID": int(gid),
                                     "containerID": 0,
-                                    "size": 10
+                                    "size": 1
                                 }
                             ]
                         }
                     })
+
+            additionalGroupNode = configNode.find("AdditionalGroups")
+
+            if self.sanityCheck.validateTextEntry(additionalGroupNode):
+                for additionalGroupName in additionalGroupNode.iter("GroupName"):
+                    if self.sanityCheck.validateTextEntry(additionalGroupName):
+                        additionalGid = self.rootfs.groupNameToGid(additionalGroupName.text)
+                        entry["linux"]["gidMappings"].append({
+                            "hostID": int(additionalGid),
+                            "containerID": int(additionalGid),
+                            "size": 1
+                        })
+                        entry["process"]["user"]["additionalGids"].append(int(additionalGid))
+            else:
+                print("We do not need to add any additional gids")
 
         return entry
 
@@ -276,8 +402,17 @@ class cConfigDobby(cConfig):
         print("[%s] Create Dobby Network configuration" % (self.sanityCheck.getName()))
         merge(data, self.createNetworkConf(configNode))
 
+        print("[%s] Create Dobby Storage configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createStorageConf(configNode))
+
+        print("[%s] Create Dobby Seccomp configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createSeccompConf(configNode))
+
         print("[%s] Create Dobby Environment configuration" % (self.sanityCheck.getName()))
         merge(data, self.createEnvConf(configNode))
+
+        print("[%s] Create Dobby Thunder configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createThunderConfig(configNode))
 
         if configNode.find("Rootfs") is None or configNode.find("Rootfs").attrib["create"] == "no":
             self.rootfs.setShareRootfs(True)
