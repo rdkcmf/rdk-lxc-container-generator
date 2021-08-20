@@ -97,6 +97,11 @@ class cCgroupDobby(cCgroup):
             if self.sanityCheck.validateTextEntry(OOMControl):
                 merge(entry, {"linux": {"resources": {"memory": {"disableOOMKiller": bool(OOMControl.text)}}}})
 
+            # GPU Memory
+            gpuMemoryLimit = CGroupNode.find("GpuMemoryLimit")
+            if self.sanityCheck.validateTextEntry(gpuMemoryLimit):
+                merge(entry, {"rdkPlugins": { "gpu": {"required": False, "data": { "memory": int(gpuMemoryLimit.text)}}}})
+
             # CPU
             CpuShares = CGroupNode.find("CpuShares")
             if self.sanityCheck.validateTextEntry(CpuShares):

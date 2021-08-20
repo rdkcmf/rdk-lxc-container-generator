@@ -165,6 +165,10 @@ class cConfigDobby(cConfig):
                 port_forwarding = networkNode.find("PortForwarding")
                 if port_forwarding is not None and "enable" in port_forwarding.attrib:
                     entry["rdkPlugins"]["networking"]["data"]["portForwarding"] = {}
+
+                    if "localhostmasquerade" in port_forwarding.attrib:
+                        entry["rdkPlugins"]["networking"]["data"]["portForwarding"]["localhostMasquerade"] = True
+
                     for rule in port_forwarding.iter("Rule"):
                         port_forward_rule = {
                             "port": int(rule.attrib["port"]),
@@ -382,6 +386,28 @@ class cConfigDobby(cConfig):
 
         return entry
 
+    def generateResourcelimits(self, configNode):
+        entry = {}
+        entry["process"] = {}
+
+        rLimitsNode = configNode.find("ResourceLimits")
+        if self.sanityCheck.validateTextEntry(rLimitsNode):
+            entry["process"]["rlimits"] = []
+            for limit in rLimitsNode.iter("Limit"):
+                limitType = limit.attrib["type"]
+                limitSoft = limit.attrib["soft"]
+                limitHard = limit.attrib["hard"]
+
+                limitEntry = {
+                    "type": limitType,
+                    "hard": int(limitHard),
+                    "soft": int(limitSoft)
+                }
+
+                entry["process"]["rlimits"].append(limitEntry)
+
+        return entry
+
     def createLxcConf(self, configNode):
 
         data = cJsonUtils.read(self.rootfs.getConfFileHost())
@@ -398,6 +424,9 @@ class cConfigDobby(cConfig):
         merge(data, self.generateCapsSettings(configNode))
         merge(data, self.genereteUserSettings(configNode))
         merge(data, self.createConsoleConf(configNode))
+
+        print("[%s] Create Dobby resource limits" % (self.sanityCheck.getName()))
+        merge(data, self.generateResourcelimits(configNode))
 
         print("[%s] Create Dobby Network configuration" % (self.sanityCheck.getName()))
         merge(data, self.createNetworkConf(configNode))
@@ -511,24 +540,7 @@ class cConfigDobby(cConfig):
             },
             "process": {
                 # TODO hardcoded
-                "cwd": "/",
-                "rlimits": [
-                    {
-                        "type": "RLIMIT_NOFILE",
-                        "hard": 1024,
-                        "soft": 1024
-                    },
-                    {
-                        "type": "RLIMIT_NPROC",
-                        "hard": 300,
-                        "soft": 300
-                    },
-                    {
-                        "type": "RLIMIT_RTPRIO",
-                        "hard": 6,
-                        "soft": 6
-                    }
-                ],
+                "cwd": "/"
             },
             "rdkPlugins": {
                 "gpu": {
