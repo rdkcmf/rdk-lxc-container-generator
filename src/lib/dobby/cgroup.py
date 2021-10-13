@@ -76,6 +76,21 @@ class cCgroupDobby(cCgroup):
                         dev = {"allow": True, "type": type, "major": major, "minor": minor, "access": access}
                         merge(entry, {"linux": {"resources": {"devices": [dev]}}})
 
+        dynamicDevs = CGroupNode.find("DynamicDevices")
+        if dynamicDevs is not None:
+            entry["rdkPlugins"] = {
+                    "devicemapper": {
+                        "required": False,
+                        "data": {
+                            "devices": []
+                        }
+                    }
+                }
+
+            for device in dynamicDevs:
+                if "name" in device.attrib and device.attrib["name"] is not None:
+                    entry["rdkPlugins"]["devicemapper"]["data"]["devices"].append(device.attrib["name"])
+
         return entry
 
     def createCGroupConf(self, CGroupNode):

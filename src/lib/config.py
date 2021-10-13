@@ -21,6 +21,7 @@ import re
 from dbus import cDbus
 from cgroup import cCgroup
 from sanity_check import cSanityCheck
+from logging import cLog
 
 ################################################################################
 #   class cConfig(object):
@@ -207,6 +208,18 @@ class cConfig(object):
 
         return entry
 
+    def getAutodevHookSettings(self, lxcConfigNode):
+
+        entry = ""
+        autoDevHook = lxcConfigNode.find("AutoDevHook")
+
+        if (self.sanityCheck.validateTextEntry(autoDevHook)):
+            entry += "lxc.hook.autodev = %s\n"%(autoDevHook.text)
+        else:
+            entry += "#No AutoDev Hook.\n"
+
+        return entry
+
 
     def generateMountPoints(self, mountPointNode):
 
@@ -370,6 +383,16 @@ class cConfig(object):
 
         return entry
 
+    def createSeccompConf(self, lxcConfigNode):
+
+        entry = ""
+        seccompprofile = lxcConfigNode.find("SeccompProfile");
+        if (seccompprofile != None and seccompprofile.text != None):
+            entry +="\n# LXC SECCOMP configuration\n"
+            entry += "lxc.seccomp = %s\n"%seccompprofile.text
+
+        return entry
+
     def createLxcConf(self, lxcConfigNode):
 
         conf_fd = open(self.rootfs.getConfFileHost(), 'a')
@@ -391,13 +414,17 @@ class cConfig(object):
         userConfig = self.genereteUserSettings(lxcConfigNode)
         conf_fd.write(userConfig)
 
+        print("[%s] Create LXC SECCOMP configuration"%(self.sanityCheck.getName()))
+        seccompConfig = self.createSeccompConf(lxcConfigNode)
+        conf_fd.write(seccompConfig)
+
         print("[%s] Create LXC Network configuration"%(self.sanityCheck.getName()))
         networkConfig = self.createNetworkConf(lxcConfigNode);
         conf_fd.write(networkConfig);
 
-        lxcInclude = lxcConfigNode.find("LxcInclude");
-        if (self.sanityCheck.validateTextEntry(lxcInclude)):
-            conf_fd.write("lxc.include = %s\n"% lxcInclude.text)
+        for lxcInclude in lxcConfigNode.findall("LxcInclude"):
+            if (self.sanityCheck.validateTextEntry(lxcInclude)):
+                    conf_fd.write("lxc.include = %s\n"% lxcInclude.text)
 
         print("[%s] Create LXC Environment configuration"%(self.sanityCheck.getName()))
         envInfo = self.createEnvConf(lxcConfigNode);
@@ -406,6 +433,9 @@ class cConfig(object):
         if( not self.isAppend):
             autodevInfo = self.getAutodevSettings(lxcConfigNode)
             conf_fd.write(autodevInfo);
+            if (self.autodev):
+                autodevHookInfo = self.getAutodevHookSettings(lxcConfigNode)
+                conf_fd.write(autodevHookInfo);
 
         if (lxcConfigNode.find("Rootfs") == None or lxcConfigNode.find("Rootfs").attrib["create"] == "no"):
             self.rootfs.setShareRootfs(True)
@@ -425,6 +455,12 @@ class cConfig(object):
             for autoMount in lxcConfigNode.iter("AutoMount"):
                 if (self.sanityCheck.validateAutoMount(autoMount)):
                     conf_fd.write("\nlxc.mount.auto = %s\n"%(autoMount.text));
+
+            print("[%s] Create LXC logging configuration"%(self.sanityCheck.getName()))
+            log = cLog(self.rootfs)
+            logConfig = log.createLoggingConf(lxcConfigNode.find("Logging"), lxcConfigNode.find("UserName"))
+            conf_fd.write(logConfig);
+
 
         else:
             conf_fd.write("\nlxc.autodev = 0\n")

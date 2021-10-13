@@ -86,11 +86,19 @@ class cConfigDobby(cConfig):
                     destination = loopback.attrib["destination"]
                     source = loopback.attrib["source"]
 
+                    img_size = 0
+                    # Default to 12MB
+                    if "size" in loopback.attrib:
+                        img_size = int(loopback.attrib["size"])
+                    else:
+                        img_size = 12582912
+
                     loopback_entry = {
                         "destination": destination,
                         "flags": 14,
                         "fstype": "ext4",
-                        "source": source
+                        "source": source,
+                        "imgsize": img_size
                     }
 
                     entry["rdkPlugins"]["storage"]["data"]["loopback"].append(loopback_entry)
