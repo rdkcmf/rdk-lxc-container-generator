@@ -113,9 +113,8 @@ class cConfigDobby(cConfig):
 
         if thunderNode is not None:
             enable = thunderNode.attrib["enable"]
-            bearerUrl = thunderNode.attrib["bearerUrl"]
 
-            if enable == "true":
+            if enable.lower() == "true":
                 entry["rdkPlugins"] = {
                     "thunder": {
                         "required": True,
@@ -124,8 +123,12 @@ class cConfigDobby(cConfig):
                     }
                 }
 
-            if bearerUrl is not None:
-                entry["rdkPlugins"]["thunder"]["data"]["bearerUrl"] = bearerUrl
+            if "bearerUrl" in thunderNode.attrib:
+                entry["rdkPlugins"]["thunder"]["data"]["bearerUrl"] = thunderNode.attrib["bearerUrl"]
+
+            if "trusted" in thunderNode.attrib:
+                if thunderNode.attrib["trusted"].lower() == "true":
+                    entry["rdkPlugins"]["thunder"]["data"]["trusted"] = True
 
         return entry
 
