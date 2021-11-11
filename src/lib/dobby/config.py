@@ -132,6 +132,28 @@ class cConfigDobby(cConfig):
 
         return entry
 
+    def createMinidumpConfig(self, configNode):
+
+        entry = {}
+
+        minidumpNode = configNode.find("Minidump")
+
+        if minidumpNode is not None:
+            enable = minidumpNode.attrib["enable"]
+            path = minidumpNode.attrib["path"]
+
+            if enable.lower() == "true":
+                entry["rdkPlugins"] = {
+                    "minidump": {
+                        "required": False,
+                        "data": {
+                            "destinationPath": path
+                        }
+                    }
+                }
+
+        return entry
+
 
     def createNetworkConf(self, configNode):
 
@@ -453,6 +475,9 @@ class cConfigDobby(cConfig):
 
         print("[%s] Create Dobby Thunder configuration" % (self.sanityCheck.getName()))
         merge(data, self.createThunderConfig(configNode))
+
+        print("[%s] Create Dobby Minidump configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createMinidumpConfig(configNode))
 
         if configNode.find("Rootfs") is None or configNode.find("Rootfs").attrib["create"] == "no":
             self.rootfs.setShareRootfs(True)
