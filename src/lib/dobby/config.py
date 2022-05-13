@@ -77,11 +77,13 @@ class cConfigDobby(cConfig):
                     "storage": {
                         "required": False,
                         "data": {
-                            "loopback": []
+                            "loopback": [],
+                            "dynamic": []
                         }
                     }
                 }
 
+                # Process LoopBack mounts
                 for loopback in storageNode.iter('Loopback'):
                     destination = loopback.attrib["destination"]
                     source = loopback.attrib["source"]
@@ -102,6 +104,20 @@ class cConfigDobby(cConfig):
                     }
 
                     entry["rdkPlugins"]["storage"]["data"]["loopback"].append(loopback_entry)
+
+                # Process dynamic mounts
+                for dynamic in storageNode.iter('Dynamic'):
+                    destination = dynamic.attrib["destination"]
+                    source = dynamic.attrib["source"]
+                    options = dynamic.attrib["options"]
+
+                    dynamic_entry = {
+                        "destination": destination,
+                        "options": options.split(","),
+                        "source": source
+                    }
+
+                    entry["rdkPlugins"]["storage"]["data"]["dynamic"].append(dynamic_entry)
 
         return entry
 
