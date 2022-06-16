@@ -170,6 +170,27 @@ class cConfigDobby(cConfig):
 
         return entry
 
+    def createOOMCrashConfig(self, configNode):
+
+        entry = {}
+
+        OOMCrashNode = configNode.find("OOMCrash")
+
+        if OOMCrashNode is not None:
+            enable = OOMCrashNode.attrib["enable"]
+            path = OOMCrashNode.attrib["path"]
+
+            if enable.lower() == "true":
+                entry["rdkPlugins"] = {
+                    "oomcrash": {
+                        "required": False,
+                        "data": {
+                            "path": path
+                        }
+                    }
+                }
+
+        return entry
 
     def createNetworkConf(self, configNode):
 
@@ -494,6 +515,9 @@ class cConfigDobby(cConfig):
 
         print("[%s] Create Dobby Minidump configuration" % (self.sanityCheck.getName()))
         merge(data, self.createMinidumpConfig(configNode))
+
+        print("[%s] Create Dobby OOMCrash configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createOOMCrashConfig(configNode))
 
         if configNode.find("Rootfs") is None or configNode.find("Rootfs").attrib["create"] == "no":
             self.rootfs.setShareRootfs(True)
