@@ -78,7 +78,8 @@ class cConfigDobby(cConfig):
                         "required": False,
                         "data": {
                             "loopback": [],
-                            "dynamic": []
+                            "dynamic": [],
+                            "mountOwner": []
                         }
                     }
                 }
@@ -118,6 +119,22 @@ class cConfigDobby(cConfig):
                     }
 
                     entry["rdkPlugins"]["storage"]["data"]["dynamic"].append(dynamic_entry)
+
+                # Process mount owners
+                for mountOwner in storageNode.iter('MountOwner'):
+                    path = mountOwner.attrib["path"]
+                    user = mountOwner.attrib["user"]
+                    group = mountOwner.attrib["group"]
+                    recursive = mountOwner.attrib["recursive"]
+
+                    owner_entry = {
+                        "path": path,
+                        "user": user,
+                        "group": group,
+                        "recursive": recursive
+                    }
+
+                    entry["rdkPlugins"]["storage"]["data"]["mountOwner"].append(owner_entry)
 
         return entry
 
