@@ -122,13 +122,13 @@ class cConfigDobby(cConfig):
 
                 # Process mount owners
                 for mountOwner in storageNode.iter('MountOwner'):
-                    path = mountOwner.attrib["path"]
+                    source = mountOwner.attrib["source"]
                     user = mountOwner.attrib["user"]
                     group = mountOwner.attrib["group"]
                     recursive = mountOwner.attrib["recursive"]
 
                     owner_entry = {
-                        "path": path,
+                        "source": source,
                         "user": user,
                         "group": group,
                         "recursive": recursive
