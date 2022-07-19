@@ -96,12 +96,18 @@ class cConfigDobby(cConfig):
                     else:
                         img_size = 12582912
 
+                    persistent = False
+                    if "persistent" in loopback.attrib:
+                        if loopback.attrib["persistent"].lower() == "true":
+                            persistent = True
+
                     loopback_entry = {
                         "destination": destination,
                         "flags": 14,
                         "fstype": "ext4",
                         "source": source,
-                        "imgsize": img_size
+                        "imgsize": img_size,
+                        "persistent": persistent
                     }
 
                     entry["rdkPlugins"]["storage"]["data"]["loopback"].append(loopback_entry)
