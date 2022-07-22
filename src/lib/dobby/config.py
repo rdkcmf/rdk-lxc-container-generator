@@ -131,7 +131,11 @@ class cConfigDobby(cConfig):
                     source = mountOwner.attrib["source"]
                     user = mountOwner.attrib["user"]
                     group = mountOwner.attrib["group"]
-                    recursive = mountOwner.attrib["recursive"]
+
+                    recursive = False
+                    if "recursive" in mountOwner.attrib:
+                        if mountOwner.attrib["recursive"].lower() == "true":
+                            recursive = True
 
                     owner_entry = {
                         "source": source,
