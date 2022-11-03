@@ -219,6 +219,38 @@ class cConfigDobby(cConfig):
 
         return entry
 
+    def createMemCheckpointRestoreConfig(self, configNode):
+
+        entry = {}
+
+        memCheckpointRestoreNode = configNode.find('MemCheckpointRestore')
+        if memCheckpointRestoreNode is not None:
+            entry["rdkPlugins"] = {
+                "memcheckpointrestore": {
+                    "required": False,
+                    "data": {
+                        "mountpoints": []
+                    }
+                }
+            }
+
+            # Process mount points
+            for mountPoint in memCheckpointRestoreNode.iter('MountPoint'):
+                destination = mountPoint.attrib["destination"]
+                source = mountPoint.attrib["source"]
+                options = mountPoint.attrib["options"]
+
+                mountPointEntry = {
+                    "source" : source,
+                    "destination": destination,
+                    "type": "bind",
+                    "options" : options.split(",")
+                }
+
+                entry["rdkPlugins"]["memcheckpointrestore"]["data"]["mountpoints"].append(mountPointEntry)
+
+        return entry
+
     def createNetworkConf(self, configNode):
 
         entry = {}
@@ -545,6 +577,9 @@ class cConfigDobby(cConfig):
 
         print("[%s] Create Dobby OOMCrash configuration" % (self.sanityCheck.getName()))
         merge(data, self.createOOMCrashConfig(configNode))
+
+        print("[%s] Create Dobby MemCheckpointRestore configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createMemCheckpointRestoreConfig(configNode))
 
         if configNode.find("Rootfs") is None or configNode.find("Rootfs").attrib["create"] == "no":
             self.rootfs.setShareRootfs(True)
