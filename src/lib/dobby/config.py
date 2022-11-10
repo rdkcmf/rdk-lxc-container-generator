@@ -249,6 +249,30 @@ class cConfigDobby(cConfig):
 
                 entry["rdkPlugins"]["memcheckpointrestore"]["data"]["mountpoints"].append(mountPointEntry)
 
+    def createEnvironmentVariableConfig(self, configNode):
+
+        entry = {}
+
+        EnvironmentVariableNode = configNode.find("EnvironmentVariable")
+
+        if EnvironmentVariableNode is not None:
+            enable = EnvironmentVariableNode.attrib["enable"]
+
+            if enable.lower() == "true":
+                entry["rdkPlugins"] = {
+                    "environmentvariable": {
+                        "required": False,
+                        "data": {
+                            "variables": [
+                            ]
+                        }
+                    }
+                }
+
+                entry["rdkPlugins"]["environmentvariable"]["data"]["variables"] = []
+                for variable in EnvironmentVariableNode.iter("Variable"):
+                    entry["rdkPlugins"]["environmentvariable"]["data"]["variables"].append(variable.text)
+
         return entry
 
     def createNetworkConf(self, configNode):
@@ -580,6 +604,9 @@ class cConfigDobby(cConfig):
 
         print("[%s] Create Dobby MemCheckpointRestore configuration" % (self.sanityCheck.getName()))
         merge(data, self.createMemCheckpointRestoreConfig(configNode))
+
+        print("[%s] Create Dobby EnvironmentVariable configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createEnvironmentVariableConfig(configNode))
 
         if configNode.find("Rootfs") is None or configNode.find("Rootfs").attrib["create"] == "no":
             self.rootfs.setShareRootfs(True)
