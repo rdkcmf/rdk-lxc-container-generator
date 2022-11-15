@@ -249,29 +249,22 @@ class cConfigDobby(cConfig):
 
                 entry["rdkPlugins"]["memcheckpointrestore"]["data"]["mountpoints"].append(mountPointEntry)
 
-    def createEnvironmentVariableConfig(self, configNode):
+    def createLocalTimeConfig(self, configNode):
 
         entry = {}
 
-        EnvironmentVariableNode = configNode.find("EnvironmentVariable")
+        LocalTimeNode = configNode.find("LocalTime")
 
-        if EnvironmentVariableNode is not None:
-            enable = EnvironmentVariableNode.attrib["enable"]
+        if LocalTimeNode is not None:
+            enable = LocalTimeNode.attrib["enable"]
 
             if enable.lower() == "true":
                 entry["rdkPlugins"] = {
-                    "environmentvariable": {
+                    "localtime": {
                         "required": False,
-                        "data": {
-                            "variables": [
-                            ]
-                        }
+                        "data": {}
                     }
                 }
-
-                entry["rdkPlugins"]["environmentvariable"]["data"]["variables"] = []
-                for variable in EnvironmentVariableNode.iter("Variable"):
-                    entry["rdkPlugins"]["environmentvariable"]["data"]["variables"].append(variable.text)
 
         return entry
 
@@ -605,8 +598,8 @@ class cConfigDobby(cConfig):
         print("[%s] Create Dobby MemCheckpointRestore configuration" % (self.sanityCheck.getName()))
         merge(data, self.createMemCheckpointRestoreConfig(configNode))
 
-        print("[%s] Create Dobby EnvironmentVariable configuration" % (self.sanityCheck.getName()))
-        merge(data, self.createEnvironmentVariableConfig(configNode))
+        print("[%s] Create Dobby LocalTime configuration" % (self.sanityCheck.getName()))
+        merge(data, self.createLocalTimeConfig(configNode))
 
         if configNode.find("Rootfs") is None or configNode.find("Rootfs").attrib["create"] == "no":
             self.rootfs.setShareRootfs(True)
