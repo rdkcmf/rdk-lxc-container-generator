@@ -266,6 +266,9 @@ class cConfigDobby(cConfig):
                     }
                 }
 
+                if "setTZ" in LocalTimeNode.attrib:
+                    entry["rdkPlugins"]["localtime"]["data"]["setTZ"] = LocalTimeNode.attrib["setTZ"]
+
         return entry
 
     def createNetworkConf(self, configNode):
