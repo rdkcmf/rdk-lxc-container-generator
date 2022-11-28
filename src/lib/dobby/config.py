@@ -249,6 +249,8 @@ class cConfigDobby(cConfig):
 
                 entry["rdkPlugins"]["memcheckpointrestore"]["data"]["mountpoints"].append(mountPointEntry)
 
+        return entry
+
     def createLocalTimeConfig(self, configNode):
 
         entry = {}
